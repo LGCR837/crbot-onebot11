@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+.mimocode/
+.atomcode/
+.claudecode/
+.opencode/
+*.swp
+*.swo
+
+# Config (contains credentials)
+config.json
+
+# Runtime
+temp/
+temp_images/
+*.log
+.bot_processed_ids.json
+
+# OS
+.DS_Store
+Thumbs.db
