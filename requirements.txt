@@ -1,2 +1,4 @@
 requests
 websockets
+aiohttp
+cryptography

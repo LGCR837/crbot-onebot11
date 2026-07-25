@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from oldchat_client import OldChatClient
+from oldchat_ws import OldChatWS
 from onebot_client import OneBotClient
 from bridge import Bridge
 
@@ -31,14 +32,14 @@ def load_config() -> dict:
                 "base_url": "http://60.205.94.101:8080",
                 "identifier": "YOUR_BOT_NAME",
                 "password": "YOUR_PASSWORD",
-                "use_encryption": true,
+                "use_encryption": True,
                 "groups": ["GRP-3TTO6Q"],
                 "poll_interval": 3
             },
             "onebot11": {
                 "endpoint": "ws://127.0.0.1:5521/ws",
                 "self_id": "YOUR_SELF_ID",
-                "token": null
+                "token": None
             },
             "bridge": {
                 "group_mapping": {
@@ -52,24 +53,6 @@ def load_config() -> dict:
         sys.exit(1)
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
-
-
-def poll_oldchat(bridge: Bridge, config: dict):
-    poll_interval = config["oldchat"].get("poll_interval", 3)
-    groups = config["oldchat"].get("groups", [])
-
-    logger.info("开始轮询 OldChat 群组: %s, 间隔: %ds", groups, poll_interval)
-
-    while True:
-        try:
-            for group_id in groups:
-                bridge.oldchat_to_onebot_from_thread(group_id)
-            bridge._send_pending_from_thread()
-            bridge.cleanup_processed_ids()
-        except Exception as e:
-            logger.error("OldChat 轮询异常: %s", e)
-
-        time.sleep(poll_interval)
 
 
 def main():
@@ -87,7 +70,7 @@ def main():
         sys.exit(1)
 
     endpoint = onebot_cfg.get("endpoint", "ws://127.0.0.1:5521/ws")
-    self_id = onebot_cfg.get("self_id", "crbot")
+    self_id = onebot_cfg.get("self_id", "YOUR_SELF_ID")
 
     onebot = OneBotClient(
         endpoint=endpoint,
@@ -108,10 +91,16 @@ def main():
     bridge.set_loop(loop)
     asyncio.set_event_loop(loop)
 
-    poll_thread = threading.Thread(target=poll_oldchat, args=(bridge, config), daemon=True)
-    poll_thread.start()
+    oldchat_ws = OldChatWS(oldchat_cfg["base_url"], oldchat.access_token)
+    oldchat_ws.on_message(bridge.oldchat_ws_handler)
 
-    loop.run_until_complete(onebot._connect())
+    async def run_all():
+        await asyncio.gather(
+            oldchat_ws._connect(),
+            onebot._connect(),
+        )
+
+    loop.run_until_complete(run_all())
 
 
 if __name__ == "__main__":
