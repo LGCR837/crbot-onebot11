@@ -147,8 +147,8 @@ class Bridge:
             self.oldchat.send_group_message(group_id, f"CRBot-OneBot11\nRunning: {uptime}")
             return
 
-            logger.info("OldChat → OneBot11: 群 %s, 发送者 %s, 内容: %s", group_id, sender_name, body[:50])
-            message_segments.append({"type": "text", "data": {"text": body}})
+        logger.info("OldChat → OneBot11: 群 %s, 发送者 %s, 内容: %s", group_id, sender_name, body[:50])
+        message_segments.append({"type": "text", "data": {"text": body}})
 
         event = {
             "post_type": "message",
