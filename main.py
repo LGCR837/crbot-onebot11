@@ -55,8 +55,30 @@ def load_config() -> dict:
         return json.load(f)
 
 
+def _uptime_str(start: float) -> str:
+    elapsed = time.time() - start
+    d = int(elapsed) // 86400
+    h = (int(elapsed) % 86400) // 3600
+    m = (int(elapsed) % 3600) // 60
+    s = int(elapsed) % 60
+    parts = []
+    if d:
+        parts.append(f"{d}天")
+    if h:
+        parts.append(f"{h}h")
+    if m:
+        parts.append(f"{m}min")
+    parts.append(f"{s}s")
+    return " ".join(parts)
+
+
 def main():
+    started_at = time.time()
     config = load_config()
+
+    banner = (
+        f"CRBot-OneBot11 Running: {_uptime_str(started_at)}"
+    )
 
     oldchat_cfg = config["oldchat"]
     onebot_cfg = config["onebot11"]
