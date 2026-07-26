@@ -63,11 +63,9 @@ def _uptime_str(start: float) -> str:
     s = int(elapsed) % 60
     parts = []
     if d:
-        parts.append(f"{d}天")
-    if h:
-        parts.append(f"{h}h")
-    if m:
-        parts.append(f"{m}min")
+        parts.append(f"{d}days")
+    parts.append(f"{h}h")
+    parts.append(f"{m}min")
     parts.append(f"{s}s")
     return " ".join(parts)
 
@@ -77,7 +75,7 @@ def main():
     config = load_config()
 
     banner = (
-        f"CRBot-OneBot11 Running: {_uptime_str(started_at)}"
+        f"CRBot-OneBot11\nRunning: {_uptime_str(started_at)}"
     )
 
     oldchat_cfg = config["oldchat"]
@@ -100,7 +98,7 @@ def main():
         token=onebot_cfg.get("token"),
     )
 
-    bridge = Bridge(oldchat, onebot, bridge_cfg)
+    bridge = Bridge(oldchat, onebot, bridge_cfg, started_at)
 
     onebot.on_message(bridge.onebot_to_oldchat)
     onebot.on_api_call(bridge.handle_api_call)
@@ -108,6 +106,7 @@ def main():
     logger.info("crbot-onebot11 启动完成")
     logger.info("  OldChat: %s", oldchat_cfg["base_url"])
     logger.info("  OneBot11: %s", endpoint)
+    logger.info(" %s", banner)
 
     loop = asyncio.new_event_loop()
     bridge.set_loop(loop)

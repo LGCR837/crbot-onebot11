@@ -33,16 +33,32 @@ def qq_to_uid(qq: int) -> Optional[str]:
 
 
 class Bridge:
-    def __init__(self, oldchat: OldChatClient, onebot: OneBotClient, config: dict):
+    def __init__(self, oldchat: OldChatClient, onebot: OneBotClient, config: dict, started_at: float = 0):
         self.oldchat = oldchat
         self.onebot = onebot
         self.config = config
         self.processed_ids: set = set()
         self._loop = None
         self._msg_id_counter = 0
+        self._started_at = started_at or time.time()
 
         self.group_mapping = {k: int(v) for k, v in config.get("group_mapping", {}).items()}
         self.reverse_mapping = {v: k for k, v in self.group_mapping.items()}
+
+    @staticmethod
+    def _uptime_str(start: float) -> str:
+        elapsed = time.time() - start
+        d = int(elapsed) // 86400
+        h = (int(elapsed) % 86400) // 3600
+        m = (int(elapsed) % 3600) // 60
+        s = int(elapsed) % 60
+        parts = []
+        if d:
+            parts.append(f"{d}days")
+        parts.append(f"{h}h")
+        parts.append(f"{m}min")
+        parts.append(f"{s}s")
+        return " ".join(parts)
 
     def set_loop(self, loop):
         self._loop = loop
@@ -124,6 +140,12 @@ class Bridge:
 
             if not body:
                 return
+
+        if isinstance(body, str) and body.strip() == "#crbot":
+            logger.info("收到 #crbot")
+            uptime = Bridge._uptime_str(self._started_at)
+            self.oldchat.send_group_message(group_id, f"CRBot-OneBot11\nRunning: {uptime}")
+            return
 
             logger.info("OldChat → OneBot11: 群 %s, 发送者 %s, 内容: %s", group_id, sender_name, body[:50])
             message_segments.append({"type": "text", "data": {"text": body}})
