@@ -93,16 +93,31 @@ class OneBotClient:
             group_id = str(params.get("group_id", ""))
             message = params.get("message", "")
 
-            if isinstance(message, list):
-                text_parts = []
-                for elem in message:
-                    if isinstance(elem, dict) and elem.get("type") == "text":
-                        text_parts.append(elem.get("data", {}).get("text", ""))
-                message = "".join(text_parts)
-
             if self._api_handler:
                 try:
                     await self._api_handler("send_group_msg", group_id=group_id, message=message)
+                except Exception as e:
+                    result["status"] = "failed"
+                    result["retcode"] = 1
+                    result["msg"] = str(e)
+
+        elif action == "get_group_member_list":
+            group_id = params.get("group_id", 0)
+            if self._api_handler:
+                try:
+                    data = await self._api_handler("get_group_member_list", group_id=group_id)
+                    result["data"] = data
+                except Exception as e:
+                    result["status"] = "failed"
+                    result["retcode"] = 1
+                    result["msg"] = str(e)
+
+        elif action == "get_group_info":
+            group_id = params.get("group_id", 0)
+            if self._api_handler:
+                try:
+                    data = await self._api_handler("get_group_info", group_id=group_id)
+                    result["data"] = data
                 except Exception as e:
                     result["status"] = "failed"
                     result["retcode"] = 1

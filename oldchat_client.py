@@ -79,6 +79,11 @@ class OldChatClient:
                              params={"group_id": group_id, "limit": limit, "offset": offset})
         return data.get("messages", [])
 
+    def get_group_members(self, group_id: str) -> List[Dict]:
+        data = self._request("GET", "/v1/groups/members",
+                             params={"group_id": group_id})
+        return data.get("members", [])
+
     def send_group_message(self, group_id: str, body: str, msg_type: str = "text",
                            burn_after_seconds: int = 0,
                            media_url: str = None, thumb_url: str = None, **kwargs) -> Dict:
@@ -139,6 +144,32 @@ class OldChatClient:
             except Exception as e:
                 logger.warning("上传失败: %s", e)
 
+        return None, None
+
+    def upload_media_bytes(self, file_data: bytes, filename: str, ctype: str = "image/jpeg") -> Tuple[Optional[str], Optional[str]]:
+        attempts = [
+            ("file", (filename, file_data)),
+            ("media", (filename, file_data)),
+            ("file", (filename, file_data, ctype)),
+        ]
+        for field_name, files_tuple in attempts:
+            try:
+                resp = self.session.post(
+                    f"{self.base_url}/v1/media",
+                    headers={"Authorization": f"Bearer {self.access_token}"},
+                    files={field_name: files_tuple}
+                )
+                if resp.status_code in (200, 201):
+                    r = resp.json()
+                    media_url = r.get("url", "")
+                    thumb_url = r.get("thumb_url", "")
+                    if media_url.startswith("/"):
+                        media_url = self.base_url + media_url
+                    if thumb_url.startswith("/"):
+                        thumb_url = self.base_url + thumb_url
+                    return media_url, thumb_url
+            except Exception as e:
+                logger.warning("上传失败: %s", e)
         return None, None
 
     def download_media(self, url: str, save_path: str) -> bool:
