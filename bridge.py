@@ -184,6 +184,10 @@ class Bridge:
                                 b64_str = file_data.split(",", 1)[-1] if "," in file_data else file_data.replace("base64://", "")
                                 base64_images.append(b64_str)
                 message = "".join(text_parts)
+            elif not isinstance(message, str):
+                message = str(message)
+
+            logger.info("转发文本到 OldChat: 群 %s, 内容: %s", oldchat_group_id, message[:100] if message else "(空)")
 
             if message:
                 try:

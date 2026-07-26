@@ -87,12 +87,15 @@ class OldChatClient:
     def send_group_message(self, group_id: str, body: str, msg_type: str = "text",
                            burn_after_seconds: int = 0,
                            media_url: str = None, thumb_url: str = None, **kwargs) -> Dict:
+        if not isinstance(body, str):
+            body = str(body) if body else ""
         payload = {
             "group_id": group_id,
             "body": body,
             "msg_type": msg_type,
-            "burn_after_seconds": burn_after_seconds
         }
+        if burn_after_seconds:
+            payload["burn_after_seconds"] = burn_after_seconds
         if media_url:
             payload["media_url"] = media_url
         if thumb_url:
