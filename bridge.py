@@ -7,7 +7,6 @@ import hashlib
 import json
 import logging
 import time
-from pathlib import Path
 from typing import Optional
 
 from oldchat_client import OldChatClient
@@ -22,7 +21,8 @@ _qq_to_uid_cache: dict = {}
 
 def uid_to_qq(uid: str) -> int:
     if uid not in _uid_to_qq_cache:
-        qq = abs(hash(uid)) % (10**9) + 100000000
+        digest = hashlib.sha256(uid.encode("utf-8")).hexdigest()
+        qq = int(digest[:16], 16) % (10**9) + 100000000
         _uid_to_qq_cache[uid] = qq
         _qq_to_uid_cache[qq] = uid
     return _uid_to_qq_cache[uid]
@@ -51,8 +51,15 @@ class Bridge:
         self._msg_id_counter += 1
         return self._msg_id_counter
 
-    def _uid_to_qq(self, uid: str) -> int:
-        return abs(hash(uid)) % (10**9) + 100000000
+    def _check_duplicate(self, msg_id: str) -> bool:
+        if not msg_id:
+            return False
+        if msg_id in self.processed_ids:
+            return True
+        self.processed_ids.add(msg_id)
+        if len(self.processed_ids) > 2000:
+            self.processed_ids = set(list(self.processed_ids)[-1000:])
+        return False
 
     # ==================== OldChat WS → OneBot11 ====================
 
@@ -70,51 +77,56 @@ class Bridge:
         from_uid = data.get("from_uid", "")
         body = data.get("body", "")
         msg_id = data.get("id", "")
+        msg_type = data.get("msg_type", "text")
+        media_url = data.get("media_url", "")
 
         if not group_id or group_id not in self.group_mapping:
             return
 
-        onebot_group_id = self.group_mapping[group_id]
-
-        if isinstance(body, dict):
-            body = body.get("text", json.dumps(body, ensure_ascii=False))
-        elif isinstance(body, str) and body.startswith("{"):
-            try:
-                parsed = json.loads(body)
-                if isinstance(parsed, dict) and parsed.get("v") == 2:
-                    text = parsed.get("text", "")
-                    text = text.replace("\u200b", "").replace("\u200c", "").replace("\u200d", "").replace("\ufeff", "")
-                    mentions = parsed.get("mentions", [])
-                    for m in mentions:
-                        uid = m.get("uid", "")
-                        name = m.get("name", uid)
-                        qq_num = self._uid_to_qq(uid)
-                        text = text.replace(f"@{name}", f"[CQ:at,qq={qq_num}]")
-                    quote = parsed.get("quote")
-                    if quote and quote.get("id"):
-                        text = f"[CQ:reply,id={quote['id']}]{text}"
-                    body = text
-                elif isinstance(parsed, dict):
-                    body = parsed.get("text", body)
-            except json.JSONDecodeError:
-                pass
-
-        if not body:
+        if self._check_duplicate(msg_id):
             return
 
+        onebot_group_id = self.group_mapping[group_id]
+
         sender_name = from_uid
-        try:
-            members = self.oldchat.get_group_members(group_id)
-            for m in members:
-                if m.get("uid") == from_uid:
-                    sender_name = m.get("display_name", "") or m.get("username", from_uid)
-                    break
-        except Exception:
-            pass
+        user_id = uid_to_qq(from_uid)
 
-        logger.info("OldChat → OneBot11: 群 %s, 发送者 %s, 内容: %s", group_id, sender_name, body[:50])
+        message_segments = []
 
-        user_id = int(from_uid) if from_uid and from_uid.isdigit() else hash(from_uid) % (10**9)
+        if msg_type == "image" and media_url:
+            if media_url.startswith("/"):
+                media_url = self.oldchat.base_url + media_url
+            message_segments.append({"type": "image", "data": {"file": media_url}})
+            logger.info("OldChat → OneBot11: 群 %s, 发送者 %s, 图片: %s", group_id, sender_name, media_url[:80])
+        else:
+            if isinstance(body, dict):
+                body = body.get("text", json.dumps(body, ensure_ascii=False))
+            elif isinstance(body, str) and body.startswith("{"):
+                try:
+                    parsed = json.loads(body)
+                    if isinstance(parsed, dict) and parsed.get("v") == 2:
+                        text = parsed.get("text", "")
+                        text = text.replace("\u200b", "").replace("\u200c", "").replace("\u200d", "").replace("\ufeff", "")
+                        mentions = parsed.get("mentions", [])
+                        for m in mentions:
+                            uid = m.get("uid", "")
+                            name = m.get("name", uid)
+                            qq_num = uid_to_qq(uid)
+                            text = text.replace(f"@{name}", f"[CQ:at,qq={qq_num}]")
+                        quote = parsed.get("quote")
+                        if quote and quote.get("id"):
+                            text = f"[CQ:reply,id={quote['id']}]{text}"
+                        body = text
+                    elif isinstance(parsed, dict):
+                        body = parsed.get("text", body)
+                except json.JSONDecodeError:
+                    pass
+
+            if not body:
+                return
+
+            logger.info("OldChat → OneBot11: 群 %s, 发送者 %s, 内容: %s", group_id, sender_name, body[:50])
+            message_segments.append({"type": "text", "data": {"text": body}})
 
         event = {
             "post_type": "message",
@@ -123,8 +135,8 @@ class Bridge:
             "group_id": onebot_group_id,
             "user_id": user_id,
             "message_id": self._next_msg_id(),
-            "message": [{"type": "text", "data": {"text": body}}],
-            "raw_message": body,
+            "message": message_segments,
+            "raw_message": body if isinstance(body, str) else json.dumps(body, ensure_ascii=False),
             "font": 0,
             "sender": {
                 "user_id": user_id,
@@ -169,7 +181,7 @@ class Bridge:
                 return
 
             text_parts = []
-            base64_images = []
+            images_to_send = []
 
             if isinstance(message, list):
                 for elem in message:
@@ -182,7 +194,11 @@ class Bridge:
                             file_data = data.get("file", "")
                             if file_data.startswith("base64://"):
                                 b64_str = file_data.split(",", 1)[-1] if "," in file_data else file_data.replace("base64://", "")
-                                base64_images.append(b64_str)
+                                images_to_send.append(("base64", b64_str))
+                            elif file_data.startswith("http://") or file_data.startswith("https://"):
+                                images_to_send.append(("url", file_data))
+                            elif file_data.startswith("file://"):
+                                images_to_send.append(("url", file_data[7:]))
                 message = "".join(text_parts)
             elif not isinstance(message, str):
                 message = str(message)
@@ -196,14 +212,24 @@ class Bridge:
                 except Exception as e:
                     logger.error("转发文本失败: %s", e)
 
-            logger.info("解析到 %d 张 Base64 图片", len(base64_images))
+            logger.info("解析到 %d 张图片", len(images_to_send))
 
-            for b64_data in base64_images:
+            for img_type, img_data in images_to_send:
                 try:
-                    import base64
-                    img_bytes = base64.b64decode(b64_data)
-                    logger.info("Base64 图片解码成功，大小: %d bytes", len(img_bytes))
-                    media_url, thumb_url = self.oldchat.upload_media_bytes(img_bytes, "image.jpg")
+                    if img_type == "base64":
+                        import base64
+                        img_bytes = base64.b64decode(img_data)
+                        logger.info("Base64 图片解码成功，大小: %d bytes", len(img_bytes))
+                        media_url, thumb_url = self.oldchat.upload_media_bytes(img_bytes, "image.jpg")
+                    else:
+                        import urllib.request
+                        logger.info("下载 URL 图片: %s", img_data[:80])
+                        req = urllib.request.Request(img_data, headers={"User-Agent": "crbot-onebot11/1.0"})
+                        with urllib.request.urlopen(req, timeout=30) as resp:
+                            img_bytes = resp.read()
+                        logger.info("URL 图片下载成功，大小: %d bytes", len(img_bytes))
+                        media_url, thumb_url = self.oldchat.upload_media_bytes(img_bytes, "image.jpg")
+
                     if media_url:
                         self.oldchat.send_group_message(oldchat_group_id, "", "image",
                                                         media_url=media_url, thumb_url=thumb_url)
@@ -225,7 +251,7 @@ class Bridge:
                 result = []
                 for m in members:
                     uid = m.get("uid", "")
-                    qq_num = self._uid_to_qq(uid)
+                    qq_num = uid_to_qq(uid)
                     avatar = m.get("avatar_url", "")
                     if avatar and avatar.startswith("/"):
                         avatar = base_url + avatar
@@ -253,10 +279,19 @@ class Bridge:
             oldchat_group_id = self.reverse_mapping.get(onebot_group_id)
             if not oldchat_group_id:
                 return {}
+            try:
+                members = self.oldchat.get_group_members(oldchat_group_id)
+                member_count = len(members)
+                group_name = oldchat_group_id
+                if members and members[0].get("group_name"):
+                    group_name = members[0]["group_name"]
+            except Exception:
+                member_count = 0
+                group_name = oldchat_group_id
             return {
                 "group_id": onebot_group_id,
-                "group_name": oldchat_group_id,
-                "member_count": 0,
+                "group_name": group_name,
+                "member_count": member_count,
             }
 
         elif action == "send_private_msg":
