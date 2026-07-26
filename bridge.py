@@ -4,6 +4,7 @@ bridge.py - OldChat ↔ OneBot11 协议桥接器
 
 import asyncio
 import hashlib
+import httpx
 import json
 import logging
 import time
@@ -144,7 +145,7 @@ class Bridge:
         if isinstance(body, str) and body.strip() == "#crbot":
             logger.info("收到 #crbot")
             uptime = Bridge._uptime_str(self._started_at)
-            self.oldchat.send_group_message(group_id, f"CRBot-OneBot11\nRunning: {uptime}")
+            await self.oldchat.send_group_message(group_id, f"CRBot-OneBot11\nRunning: {uptime}")
             return
 
         logger.info("OldChat → OneBot11: 群 %s, 发送者 %s, 内容: %s", group_id, sender_name, body[:50])
@@ -229,7 +230,7 @@ class Bridge:
 
             if message:
                 try:
-                    self.oldchat.send_group_message(oldchat_group_id, message)
+                    await self.oldchat.send_group_message(oldchat_group_id, message)
                     logger.info("文本消息已转发到 OldChat: 群 %s", oldchat_group_id)
                 except Exception as e:
                     logger.error("转发文本失败: %s", e)
@@ -242,19 +243,19 @@ class Bridge:
                         import base64
                         img_bytes = base64.b64decode(img_data)
                         logger.info("Base64 图片解码成功，大小: %d bytes", len(img_bytes))
-                        media_url, thumb_url = self.oldchat.upload_media_bytes(img_bytes, "image.jpg")
+                        media_url, thumb_url = await self.oldchat.upload_media_bytes(img_bytes, "image.jpg")
                     else:
-                        import urllib.request
                         logger.info("下载 URL 图片: %s", img_data[:80])
-                        req = urllib.request.Request(img_data, headers={"User-Agent": "crbot-onebot11/1.0"})
-                        with urllib.request.urlopen(req, timeout=30) as resp:
-                            img_bytes = resp.read()
+                        async with httpx.AsyncClient(timeout=30) as dl:
+                            resp = await dl.get(img_data, headers={"User-Agent": "crbot-onebot11/1.0"})
+                            resp.raise_for_status()
+                            img_bytes = resp.content
                         logger.info("URL 图片下载成功，大小: %d bytes", len(img_bytes))
-                        media_url, thumb_url = self.oldchat.upload_media_bytes(img_bytes, "image.jpg")
+                        media_url, thumb_url = await self.oldchat.upload_media_bytes(img_bytes, "image.jpg")
 
                     if media_url:
-                        self.oldchat.send_group_message(oldchat_group_id, "", "image",
-                                                        media_url=media_url, thumb_url=thumb_url)
+                        await self.oldchat.send_group_message(oldchat_group_id, "", "image",
+                                                              media_url=media_url, thumb_url=thumb_url)
                         logger.info("图片已转发到 OldChat: 群 %s, URL: %s", oldchat_group_id, media_url[:50])
                     else:
                         logger.error("图片上传失败，未获得 URL")
@@ -268,7 +269,7 @@ class Bridge:
                 return []
 
             try:
-                members = self.oldchat.get_group_members(oldchat_group_id)
+                members = await self.oldchat.get_group_members(oldchat_group_id)
                 base_url = self.oldchat.base_url
                 result = []
                 for m in members:
@@ -302,7 +303,7 @@ class Bridge:
             if not oldchat_group_id:
                 return {}
             try:
-                members = self.oldchat.get_group_members(oldchat_group_id)
+                members = await self.oldchat.get_group_members(oldchat_group_id)
                 member_count = len(members)
                 group_name = oldchat_group_id
                 if members and members[0].get("group_name"):

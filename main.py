@@ -70,7 +70,7 @@ def _uptime_str(start: float) -> str:
     return " ".join(parts)
 
 
-def main():
+async def async_main():
     started_at = time.time()
     config = load_config()
 
@@ -84,7 +84,7 @@ def main():
 
     oldchat = OldChatClient(oldchat_cfg)
     try:
-        oldchat.login(oldchat_cfg["identifier"], oldchat_cfg["password"])
+        await oldchat.login(oldchat_cfg["identifier"], oldchat_cfg["password"])
     except Exception as e:
         logger.error("OldChat 登录失败: %s", e)
         sys.exit(1)
@@ -108,20 +108,20 @@ def main():
     logger.info("  OneBot11: %s", endpoint)
     logger.info(" %s", banner)
 
-    loop = asyncio.new_event_loop()
+    loop = asyncio.get_running_loop()
     bridge.set_loop(loop)
-    asyncio.set_event_loop(loop)
 
     oldchat_ws = OldChatWS(oldchat_cfg["base_url"], oldchat.access_token)
     oldchat_ws.on_message(bridge.oldchat_ws_handler)
 
-    async def run_all():
-        await asyncio.gather(
-            oldchat_ws._connect(),
-            onebot._connect(),
-        )
+    await asyncio.gather(
+        oldchat_ws._connect(),
+        onebot._connect(),
+    )
 
-    loop.run_until_complete(run_all())
+
+def main():
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":
