@@ -1,6 +1,6 @@
 """
 oldchat_client.py - OldChat API 客户端（异步版）
-从 crbot-old-fix 的 oldchat_api.py 提取核心功能
+基于 API_STANDARD.md 新版接口规范
 """
 
 import os
@@ -24,6 +24,7 @@ class OldChatClient:
             headers={"User-Agent": "crbot-onebot11/1.0"},
             timeout=30,
         )
+        self._user_profile_cache: Dict[str, dict] = {}
 
     async def close(self):
         await self.session.aclose()
@@ -49,7 +50,9 @@ class OldChatClient:
             data = {"raw": response.text}
 
         if not response.is_success:
-            raise Exception(f"HTTP {response.status_code}: {data}")
+            error_code = data.get("code", "unknown")
+            error_msg = data.get("error", str(data))
+            raise Exception(f"HTTP {response.status_code} [{error_code}]: {error_msg}")
 
         return data
 
@@ -79,10 +82,38 @@ class OldChatClient:
         logger.info("OldChat 登录成功: %s", self.user.get("display_name", self.user.get("username")))
         return self.user
 
-    async def get_group_messages(self, group_id: str, limit: int = 50, offset: int = 0) -> List[Dict]:
-        data = await self._request("GET", "/v1/groups/messages/v2",
-                                   params={"group_id": group_id, "limit": limit, "offset": offset})
-        return data.get("messages", [])
+    async def get_group_messages(self, group_id: str, limit: int = 50,
+                                 offset: int = 0,
+                                 before_created_at: int = None,
+                                 before_id: str = None) -> Dict:
+        params = {"group_id": group_id, "limit": limit}
+        if before_created_at is not None and before_id:
+            params["before_created_at"] = before_created_at
+            params["before_id"] = before_id
+        elif offset:
+            params["offset"] = offset
+        data = await self._request("GET", "/v1/groups/messages/v2", params=params)
+        return data
+
+    async def get_user_profile(self, uid: str, use_cache: bool = True) -> Optional[dict]:
+        if use_cache and uid in self._user_profile_cache:
+            return self._user_profile_cache[uid]
+
+        try:
+            data = await self._request("GET", "/v1/users/profile", params={"uid": uid})
+            profile = data if isinstance(data, dict) else None
+            if profile:
+                self._user_profile_cache[uid] = profile
+            return profile
+        except Exception as e:
+            logger.warning("获取用户资料失败 %s: %s", uid, e)
+            return None
+
+    def clear_user_cache(self, uid: str = None):
+        if uid:
+            self._user_profile_cache.pop(uid, None)
+        else:
+            self._user_profile_cache.clear()
 
     async def get_group_members(self, group_id: str) -> List[Dict]:
         data = await self._request("GET", "/v1/groups/members",

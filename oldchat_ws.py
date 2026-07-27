@@ -102,10 +102,12 @@ class OldChatWS:
         while True:
             try:
                 await self._handshake()
-                ws_url = f"ws://{self.base_url.replace('http://', '')}/v1/ws?token={self.access_token}&sid={self._session_id}"
+                ws_url = f"ws://{self.base_url.replace('http://', '')}/v1/ws?sid={self._session_id}"
 
                 logger.info("连接 OldChat WebSocket: %s", ws_url.split("?")[0])
-                async with websockets.connect(ws_url) as ws:
+                async with websockets.connect(ws_url, additional_headers={
+                    "Authorization": f"Bearer {self.access_token}",
+                }) as ws:
                     self._ws = ws
                     logger.info("已连接到 OldChat WebSocket")
                     async for raw_msg in ws:

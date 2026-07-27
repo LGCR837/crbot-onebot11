@@ -42,6 +42,7 @@ class Bridge:
         self._loop = None
         self._msg_id_counter = 0
         self._started_at = started_at or time.time()
+        self._nickname_cache: dict = {}
 
         self.group_mapping = {k: int(v) for k, v in config.get("group_mapping", {}).items()}
         self.reverse_mapping = {v: k for k, v in self.group_mapping.items()}
@@ -78,6 +79,24 @@ class Bridge:
             self.processed_ids = set(list(self.processed_ids)[-1000:])
         return False
 
+    async def _resolve_sender_name(self, from_uid: str, data: dict) -> str:
+        for field in ("from_nickname", "from_display_name", "from_username", "nickname", "display_name"):
+            val = data.get(field, "")
+            if val and isinstance(val, str) and val.strip():
+                self._nickname_cache[from_uid] = val.strip()
+                return val.strip()
+
+        if from_uid in self._nickname_cache:
+            return self._nickname_cache[from_uid]
+
+        profile = await self.oldchat.get_user_profile(from_uid)
+        if profile:
+            name = profile.get("display_name", "") or profile.get("username", "") or from_uid
+            self._nickname_cache[from_uid] = name
+            return name
+
+        return from_uid
+
     # ==================== OldChat WS → OneBot11 ====================
 
     async def oldchat_ws_handler(self, msg: dict):
@@ -105,7 +124,7 @@ class Bridge:
 
         onebot_group_id = self.group_mapping[group_id]
 
-        sender_name = from_uid
+        sender_name = await self._resolve_sender_name(from_uid, data)
         user_id = uid_to_qq(from_uid)
 
         message_segments = []
@@ -189,7 +208,8 @@ class Bridge:
         if not body:
             return
 
-        logger.info("OldChat → OneBot11: 私聊 %s, 内容: %s", from_uid, body[:50])
+        sender_name = await self._resolve_sender_name(from_uid, data)
+        logger.info("OldChat → OneBot11: 私聊 %s(%s), 内容: %s", from_uid, sender_name, body[:50])
 
     # ==================== OneBot11 → OldChat ====================
 
