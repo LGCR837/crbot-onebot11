@@ -130,8 +130,7 @@ class Bridge:
         message_segments = []
 
         if msg_type == "image" and media_url:
-            if media_url.startswith("/"):
-                media_url = self.oldchat.base_url + media_url
+            media_url = self.oldchat._resolve_media_url(media_url)
             message_segments.append({"type": "image", "data": {"file": media_url}})
             logger.info("OldChat → OneBot11: 群 %s, 发送者 %s, 图片: %s", group_id, sender_name, media_url[:80])
         else:
@@ -190,7 +189,7 @@ class Bridge:
                 "level": "",
                 "role": "member",
                 "title": "",
-                "avatar": data.get("from_avatar", ""),
+                "avatar": self.oldchat._resolve_media_url(data.get("from_avatar", "")),
             },
             "time": data.get("created_at", int(time.time())),
             "self_id": self.onebot.self_id,
@@ -290,14 +289,11 @@ class Bridge:
 
             try:
                 members = await self.oldchat.get_group_members(oldchat_group_id)
-                base_url = self.oldchat.base_url
                 result = []
                 for m in members:
                     uid = m.get("uid", "")
                     qq_num = uid_to_qq(uid)
-                    avatar = m.get("avatar_url", "")
-                    if avatar and avatar.startswith("/"):
-                        avatar = base_url + avatar
+                    avatar = self.oldchat._resolve_media_url(m.get("avatar_url", ""))
                     result.append({
                         "group_id": onebot_group_id,
                         "user_id": qq_num,

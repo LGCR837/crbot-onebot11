@@ -29,7 +29,8 @@ def load_config() -> dict:
     if not config_path.exists():
         default_config = {
             "oldchat": {
-                "base_url": "http://60.205.94.101:8080",
+                "base_url": "http://oc.mcl0.dpdns.org:80",
+                "media_base_url": "http://60.205.94.101:8080",
                 "identifier": "YOUR_BOT_NAME",
                 "password": "YOUR_PASSWORD",
                 "use_encryption": True,
@@ -83,6 +84,14 @@ async def async_main():
     bridge_cfg = config.get("bridge", {})
 
     oldchat = OldChatClient(oldchat_cfg)
+
+    async def relogin():
+        logger.info("正在重新登录 OldChat...")
+        await oldchat.login(oldchat_cfg["identifier"], oldchat_cfg["password"])
+        oldchat_ws.access_token = oldchat.access_token
+        oldchat.clear_user_cache()
+        logger.info("重新登录成功，token 已更新")
+
     try:
         await oldchat.login(oldchat_cfg["identifier"], oldchat_cfg["password"])
     except Exception as e:
@@ -111,7 +120,11 @@ async def async_main():
     loop = asyncio.get_running_loop()
     bridge.set_loop(loop)
 
-    oldchat_ws = OldChatWS(oldchat_cfg["base_url"], oldchat.access_token)
+    oldchat_ws = OldChatWS(
+        oldchat_cfg["base_url"],
+        oldchat.access_token,
+        on_unauthorized=relogin,
+    )
     oldchat_ws.on_message(bridge.oldchat_ws_handler)
 
     await asyncio.gather(

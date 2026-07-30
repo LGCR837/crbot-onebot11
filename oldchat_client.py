@@ -17,6 +17,7 @@ logger = logging.getLogger("oldchat")
 class OldChatClient:
     def __init__(self, config: dict):
         self.base_url = config["base_url"].rstrip("/")
+        self.media_base_url = config.get("media_base_url", "").rstrip("/") or self.base_url
         self.access_token = None
         self.refresh_token = None
         self.user = None
@@ -25,6 +26,13 @@ class OldChatClient:
             timeout=30,
         )
         self._user_profile_cache: Dict[str, dict] = {}
+
+    def _resolve_media_url(self, url: str) -> str:
+        if not url:
+            return url
+        if url.startswith("/"):
+            return self.media_base_url + url
+        return url
 
     async def close(self):
         await self.session.aclose()
@@ -176,10 +184,8 @@ class OldChatClient:
                     r = resp.json()
                     media_url = r.get("url", "")
                     thumb_url = r.get("thumb_url", "")
-                    if media_url.startswith("/"):
-                        media_url = self.base_url + media_url
-                    if thumb_url.startswith("/"):
-                        thumb_url = self.base_url + thumb_url
+                    media_url = self._resolve_media_url(media_url)
+                    thumb_url = self._resolve_media_url(thumb_url)
                     return media_url, thumb_url
             except Exception as e:
                 logger.warning("上传失败: %s", e)
@@ -204,10 +210,8 @@ class OldChatClient:
                     r = resp.json()
                     media_url = r.get("url", "")
                     thumb_url = r.get("thumb_url", "")
-                    if media_url.startswith("/"):
-                        media_url = self.base_url + media_url
-                    if thumb_url.startswith("/"):
-                        thumb_url = self.base_url + thumb_url
+                    media_url = self._resolve_media_url(media_url)
+                    thumb_url = self._resolve_media_url(thumb_url)
                     return media_url, thumb_url
             except Exception as e:
                 logger.warning("上传失败: %s", e)

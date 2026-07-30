@@ -42,9 +42,7 @@ class AvatarServer:
 
         try:
             data = self._oldchat._request("GET", "/v1/users/profile", params={"uid": uid})
-            avatar = data.get("avatar_url", "")
-            if avatar and avatar.startswith("/"):
-                avatar = self._oldchat.base_url + avatar
+            avatar = self._oldchat._resolve_media_url(data.get("avatar_url", ""))
             self._avatar_cache[qq] = avatar
             return web.json_response({"url": avatar})
         except Exception as e:
@@ -64,9 +62,7 @@ class AvatarServer:
 
         try:
             data = self._oldchat._request("GET", "/v1/users/profile", params={"uid": uid})
-            avatar = data.get("avatar_url", "")
-            if avatar and avatar.startswith("/"):
-                avatar = self._oldchat.base_url + avatar
+            avatar = self._oldchat._resolve_media_url(data.get("avatar_url", ""))
             if avatar:
                 raise web.HTTPFound(avatar)
         except web.HTTPFound:

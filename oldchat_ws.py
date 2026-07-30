@@ -32,10 +32,12 @@ def _pkcs7_unpad(data: bytes) -> bytes:
 
 
 class OldChatWS:
-    def __init__(self, base_url: str, access_token: str):
+    def __init__(self, base_url: str, access_token: str,
+                 on_unauthorized: Optional[Callable[[], Awaitable[None]]] = None):
         self.base_url = base_url.rstrip("/")
         self.access_token = access_token
         self._message_handler: Optional[Callable] = None
+        self._on_unauthorized = on_unauthorized
         self._ws = None
         self._session_id: Optional[str] = None
         self._aes_key: Optional[bytes] = None
@@ -98,6 +100,11 @@ class OldChatWS:
         plain = _pkcs7_unpad(padded)
         return plain.decode("utf-8", errors="replace")
 
+    def _is_unauthorized(self, exc: Exception) -> bool:
+        if isinstance(exc, websockets.exceptions.InvalidStatus):
+            return exc.response.status_code == 401
+        return "HTTP 401" in str(exc)
+
     async def _connect(self):
         while True:
             try:
@@ -122,10 +129,19 @@ class OldChatWS:
                             pass
             except websockets.exceptions.ConnectionClosed:
                 logger.warning("WebSocket 连接已关闭，3 秒后重连...")
+                await asyncio.sleep(3)
             except Exception as e:
-                logger.error("WebSocket 连接失败: %s，3 秒后重连...", e)
-
-            await asyncio.sleep(3)
+                if self._is_unauthorized(e) and self._on_unauthorized:
+                    logger.warning("WebSocket 认证失败 (401)，10 秒后重新登录...")
+                    await asyncio.sleep(10)
+                    try:
+                        await self._on_unauthorized()
+                    except Exception as login_err:
+                        logger.error("重新登录失败: %s，10 秒后重试...", login_err)
+                        await asyncio.sleep(10)
+                else:
+                    logger.error("WebSocket 连接失败: %s，3 秒后重连...", e)
+                    await asyncio.sleep(3)
 
     def run(self):
         asyncio.get_event_loop().run_until_complete(self._connect())
